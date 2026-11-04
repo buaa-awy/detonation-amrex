@@ -81,6 +81,7 @@
 | `det.status_every` | `status.json/status.txt` 更新间隔，单位：水动力步 |
 | `det.status_file` | JSON 状态文件名 |
 | `det.status_text_file` | 纯文本状态文件名 |
+| `det.allow_legacy_restart` | 默认 `0`；拒绝不带版本元数据的旧 checkpoint。仅在确认兼容时设为 `1`。 |
 
 完整的建算例步骤和示例见
 [`NEW_CASE_GUIDE.md`](NEW_CASE_GUIDE.md)。

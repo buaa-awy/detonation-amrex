@@ -131,15 +131,15 @@ python -m pip install -r requirements-lock-py313.txt
 运行大 AMR 合成工具：
 
 ```bash
+VTM=$(find runs/long/fields/paraview -maxdepth 1 -name '*.vtm' | sort -V | tail -1)
 pvpython tools/extract_vtm_fields.py \
-  runs/long/fields/paraview/t0.000070001234.vtm \
-  analysis/fields_70us.npz --nx 3001 --ny 401
+  "$VTM" analysis/fields.npz --nx 3001 --ny 401
 ```
 
 然后：
 
 ```bash
+PLOT=$(find runs/long/fields -maxdepth 1 -type d -name 't*' | sort -V | tail -1)
 python3 tools/plot_final_flow.py \
-  runs/long/fields/t0.000070001234 \
-  --data analysis/fields_70us.npz --outdir analysis/figures
+  "$PLOT" --data analysis/fields.npz --outdir analysis/figures
 ```

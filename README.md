@@ -6,10 +6,6 @@ checkpoint/restart，以及 ParaView/Tecplot 数据输出。
 
 > 这是研究代码，不包含燃烧模型验证、数值方法验证或任何形式的安全保证。
 
-当前 70 μs 长算例诊断发现前导压力波和反应波持续分离，尚未形成自持爆震。
-该结果只能用于代码调试，不能作为物理正确性的基准。详见
-[docs/VALIDATION_70US.md](docs/VALIDATION_70US.md)。
-
 ## 功能
 
 - 守恒二维 Euler 方程：`rho, rho*u, rho*v, rho*E, rho*Y_k`
@@ -221,7 +217,8 @@ Y_O2 = 0.8880932560
 ## 长时算例
 
 长时二维算例位于 `examples/h2o2_2d_demo/inputs-long`，计算域为
-`0.30 m x 0.02 m`，三级 2:1 AMR，最细约 25 μm，目标时间为 75 μs。
+`0.30 m x 0.02 m`，三级 2:1 AMR，最细网格为 `25 μm x 100 μm`，与原 Python
+算例一致，目标时间为 75 μs。
 
 ```bash
 DETONATION_RUN_DIR=runs/long \
@@ -241,6 +238,10 @@ DETONATION_RUN_DIR=runs/restart \
   ./scripts/run_case.sh examples/h2o2_2d_demo/inputs-long \
   amr.restart=/absolute/path/to/chkNNNNN
 ```
+
+checkpoint 头部写入求解器版本。代码更新后，旧 checkpoint 默认会被拒绝，
+避免把旧数值状态混入新求解器。只有在确认物理兼容时，才显式设置
+`det.allow_legacy_restart=1` 读取旧格式 checkpoint。
 
 ## 输出
 
@@ -315,12 +316,12 @@ python3 tools/plot_amr_levels.py \
 `fextract`：
 
 ```bash
+VTM=$(find runs/long/fields/paraview -maxdepth 1 -name '*.vtm' | sort -V | tail -1)
+PLOT=$(find runs/long/fields -maxdepth 1 -type d -name 't*' | sort -V | tail -1)
 pvpython tools/extract_vtm_fields.py \
-  runs/long/fields/paraview/t0.000070001234.vtm \
-  analysis/fields_70us.npz --nx 3001 --ny 401
+  "$VTM" analysis/fields.npz --nx 3001 --ny 401
 python3 tools/plot_final_flow.py \
-  runs/long/fields/t0.000070001234 \
-  --data analysis/fields_70us.npz --outdir analysis/figures
+  "$PLOT" --data analysis/fields.npz --outdir analysis/figures
 ```
 
 ## 文件说明

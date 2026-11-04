@@ -165,4 +165,7 @@ private:
     amrex::Real tol_y_chem = 0.05;
     amrex::Real tol_T_chem = 0.03;
     amrex::Real front_x_cached = 0.01;
+    bool allow_legacy_restart = false;
+
+    static constexpr int checkpoint_version = 2;
 };

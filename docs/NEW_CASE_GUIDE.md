@@ -134,6 +134,10 @@ amr.chk_time_int = 5.0e-6
 长时间计算应保留 checkpoint。若只想按固定步数输出，可设置 `plot_int` 和
 `chk_int`，并将对应的 `*_time_int` 设为 0。
 
+checkpoint 带有求解器版本。修改物理模型、化学积分或数值通量后，应从
+`t=0` 重算；不要直接把旧 checkpoint 接到新代码上。旧格式 checkpoint
+默认会拒绝，只有确认兼容并显式设置 `det.allow_legacy_restart=1` 才能读取。
+
 ## 6. 设置 AMR 加密
 
 当前求解器会在以下位置加密：

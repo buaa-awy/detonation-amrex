@@ -245,6 +245,7 @@ void Detonation::ReadParameters()
     det_pp.query("chem_stride", chem_stride);
     det_pp.query("status_file", status_file);
     det_pp.query("status_text_file", status_text_file);
+    det_pp.query("allow_legacy_restart", allow_legacy_restart);
     front_x_cached = x_igniter;
     next_plot_time = plot_time_int;
     next_chk_time = chk_time_int;
@@ -1559,6 +1560,7 @@ void Detonation::WriteCheckpointFile()
         std::ofstream hf(name + "/Header");
         hf.precision(17);
         hf << "Detonation checkpoint\n";
+        hf << "checkpoint_version " << checkpoint_version << '\n';
         hf << finest_level << '\n';
         for (int s : istep) hf << s << ' ';
         hf << '\n';
@@ -1592,8 +1594,33 @@ void Detonation::ReadCheckpointFile()
     std::istringstream is(std::string(data.data()));
     std::string line;
     std::getline(is, line);
-    is >> finest_level;
-    skip_line(is);
+    std::getline(is, line);
+    std::istringstream version_line(line);
+    std::string version_tag;
+    version_line >> version_tag;
+    if (version_tag == "checkpoint_version") {
+        int version = 0;
+        version_line >> version;
+        if (version != checkpoint_version && !allow_legacy_restart) {
+            Abort(
+              "Checkpoint version " + std::to_string(version) +
+              " does not match solver version " +
+              std::to_string(checkpoint_version) +
+              ". Rerun this case from t=0 with the current executable, or "
+              "set det.allow_legacy_restart=1 explicitly.");
+        }
+        is >> finest_level;
+        skip_line(is);
+    } else {
+        if (!allow_legacy_restart) {
+            Abort(
+              "Legacy checkpoint has no solver-version metadata. Rerun this "
+              "case from t=0 with the current executable, or set "
+              "det.allow_legacy_restart=1 explicitly.");
+        }
+        std::istringstream legacy_line(line);
+        legacy_line >> finest_level;
+    }
     std::getline(is, line);
     {
         std::istringstream ls(line);

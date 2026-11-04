@@ -23,9 +23,8 @@
 | `docs/NEW_CASE_GUIDE.md` | 从复制输入文件到运行、检查结果的新建算例完整教程。 |
 | `docs/FILE_OVERVIEW.md` | 当前文件，逐个解释仓库文件及运行输出目录。 |
 | `docs/ENVIRONMENT.md` | 固定版本、系统依赖、AMReX、CUDA、MPI、Python 和 `fextract` 的安装步骤。 |
-| `docs/EXPECTED_RESULTS.md` | 化学自检、100 步回归测试和当前物理验证状态的参考值。 |
-| `docs/VALIDATION_70US.md` | 70 μs 长算例的场图、波前速度、守恒量和爆震耦合诊断。 |
-| `docs/images/*.png` | 70 μs 算例的温度、压力、AMR、密度梯度、中心线剖面和波前历史图。 |
+| `docs/EXPECTED_RESULTS.md` | 化学自检和 100 步回归测试的参考值。 |
+| `docs/VALIDATION_GUIDE.md` | Python 对照、CJ/0D 化学验证、二维网格收敛和 checkpoint 验证流程。 |
 
 ## 化学机理
 
@@ -40,7 +39,7 @@
 | `examples/h2o2_2d_demo/README.md` | H2/O2 二维示范算例的物理设置和运行说明。 |
 | `examples/h2o2_2d_demo/inputs-smoke` | 固定 100 步的确定性安装/回归测试输入。 |
 | `examples/h2o2_2d_demo/inputs` | 5 μs 快速检查算例，基础网格 600 x 50，三层 AMR。 |
-| `examples/h2o2_2d_demo/inputs-long` | 75 μs 长算例，基础网格 1504 x 104，输出 ParaView 和 Tecplot 数据。 |
+| `examples/h2o2_2d_demo/inputs-long` | 75 μs 长算例，基础网格 1500 x 25；三级细化后为 `25 x 100 μm`，输出 ParaView 和 Tecplot 数据。 |
 
 输入文件不是可执行程序。用户复制其中一个文件并修改参数即可建立新算例。
 
