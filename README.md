@@ -29,7 +29,7 @@ scripts/run_case.sh     通用算例启动脚本
 scripts/watch_status.py 无绘图实时状态
 tools/                  场提取、绘图和 ParaView 启动工具
 examples/h2o2_2d_demo/  快速和长时二维爆震算例
-docs/                   输入参数参考
+docs/                   参数参考、新建算例教程和完整文件说明
 ```
 
 ## 系统要求
@@ -124,6 +124,42 @@ python3 scripts/watch_status.py runs/quick/status.json
 
 状态包括模拟时间、完成百分比、步号、`dt`、AMR 层、活动单元、压力锋、
 反应锋、二者间距、墙钟时间和 ETA。
+
+## 新建一个算例
+
+不要直接修改公共示范输入。建议复制一份输入文件：
+
+```bash
+mkdir -p examples/my_case
+cp examples/h2o2_2d_demo/inputs examples/my_case/inputs
+```
+
+然后编辑 `examples/my_case/inputs` 中的四组参数：
+
+1. `geometry.prob_lo/hi`、`amr.n_cell` 和 `amr.max_level`：计算域尺寸、基础
+   网格和加密层数。基础网格间距为 `dx=Lx/Nx`、`dy=Ly/Ny`；每增加一层 2:1
+   加密，间距减半。
+2. `det.x_igniter`、`det.T_igniter`、`det.p_igniter`：左侧点火区边界、温度
+   和压力。
+3. `det.T_fuel`、`det.p_fuel`、`det.Y_H2`、`det.Y_O2`：右侧未燃混合气的
+   温度、压力和质量分数。当前两段区域使用相同组分，且
+   `det.Y_H2 + det.Y_O2` 必须等于 `1`。
+4. `stop_time`、`amr.plot_time_int`、`amr.chk_time_int`：最终物理时间以及
+   场数据、checkpoint 的时间间隔，全部使用秒。
+
+初始速度固定为 0。密度和总能量由求解器根据压力、温度和 NASA7 热力学数据
+计算。`det.perturb_amp` 和 `det.perturb_waves` 只在点火区叠加横向正弦温度
+扰动。当前边界固定为左侧反射壁、右侧外推、上下周期。
+
+启动新算例：
+
+```bash
+DETONATION_RUN_DIR=runs/my_case \
+  ./scripts/run_case.sh examples/my_case/inputs
+```
+
+完整的尺寸选择、组分约束、AMR 设置、运行检查和常见错误说明见
+[docs/NEW_CASE_GUIDE.md](docs/NEW_CASE_GUIDE.md)。
 
 ## 初始条件
 
@@ -249,6 +285,30 @@ AMR 布局图：
 python3 tools/plot_amr_levels.py \
   runs/quick/fields/t0.000001000000 --xlim 0.03
 ```
+
+## 文件说明
+
+仓库的主要目录如下：
+
+```text
+README.md                项目入口和快速使用说明
+CMakeLists.txt           CUDA/AMReX 构建配置
+src/                     求解器、物理模型、化学机理和输出源码
+scripts/                 构建、运行和实时监视脚本
+examples/                可直接运行的二维爆震输入
+docs/                    参数、新建算例和文件说明
+tools/                   AMReX 提取、绘图的辅助工具
+requirements.txt          Python 绘图依赖
+LICENSE                  MIT 许可证
+```
+
+其中 `src/Detonation.cpp` 是 AMR 时间推进核心，`src/Physics.H` 包含热力学和
+化学积分，`src/MechanismData.H` 保存 9 组分/21 反应机理，
+`src/FieldExport.cpp` 负责 ParaView/Tecplot 输出，`src/ChemTest.cpp` 是化学
+自检程序。
+
+发布包中每个文件的职责、一次运行产生的 `status/chk/fields/paraview/tecplot`
+文件说明见 [docs/FILE_OVERVIEW.md](docs/FILE_OVERVIEW.md)。
 
 ## 数值与性能说明
 

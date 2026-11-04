@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-RU = 8.31446261815324
 P0 = 101325.0
 
 
@@ -24,49 +23,6 @@ def wsl_path(path: Path) -> str:
     if len(text) > 2 and text[1:3] == ":/":
         return "/mnt/" + text[0].lower() + text[2:]
     return text
-
-
-def load_mechanism(root: Path):
-    import sys
-
-    sys.path.insert(0, str(root / "src"))
-    from det.mech import load_mechanism
-
-    return load_mechanism(str(root / "mechanism" / "mech_9sp21r.yaml")).nb
-
-
-def temperature_from_energy(nb, energy, Y):
-    lo = np.full(energy.shape, 250.0)
-    hi = np.full(energy.shape, 6500.0)
-    for _ in range(70):
-        T = 0.5 * (lo + hi)
-        a = np.where(
-            (T[:, None] <= nb.Tmid[None, :])[:, :, None],
-            nb.A_low[None, :, :],
-            nb.A_high[None, :, :],
-        )
-        h_rt = (
-            a[:, :, 0]
-            + T[:, None]
-            * (
-                a[:, :, 1] / 2.0
-                + T[:, None]
-                * (
-                    a[:, :, 2] / 3.0
-                    + T[:, None]
-                    * (a[:, :, 3] / 4.0 + T[:, None] * a[:, :, 4] / 5.0)
-                )
-            )
-            + a[:, :, 5] / T[:, None]
-        )
-        e = np.sum(
-            Y * (RU * T[:, None] * (h_rt - 1.0) / nb.W[None, :]),
-            axis=1,
-        )
-        above = e > energy
-        hi = np.where(above, T, hi)
-        lo = np.where(above, lo, T)
-    return 0.5 * (lo + hi)
 
 
 def read_header(plotdir: Path):
@@ -105,11 +61,19 @@ def resolve_fextract(user_value: Optional[str]) -> str:
 
 
 def extract_slice(fextract: str, plotdir: Path, y: float, outfile: Path):
-    cmd = [
-        "wsl.exe", "-d", "Ubuntu-20.04", "--exec", fextract,
-        "-s", wsl_path(outfile), "-d", "0", "-y", f"{y:.16g}",
-        wsl_path(plotdir),
-    ]
+    if os.name == "nt":
+        distro = os.environ.get("WSL_DISTRO", "Ubuntu-20.04")
+        cmd = [
+            "wsl.exe", "-d", distro, "--exec", fextract,
+            "-s", wsl_path(outfile), "-d", "0", "-y", f"{y:.16g}",
+            wsl_path(plotdir),
+        ]
+    else:
+        cmd = [
+            fextract,
+            "-s", str(outfile), "-d", "0", "-y", f"{y:.16g}",
+            str(plotdir),
+        ]
     proc = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         universal_newlines=True, encoding="utf-8", errors="replace")
@@ -118,7 +82,7 @@ def extract_slice(fextract: str, plotdir: Path, y: float, outfile: Path):
     return np.loadtxt(outfile, encoding="utf-8")
 
 
-def fields_from_plot(nb, data, names):
+def fields_from_plot(data, names):
     col = {name: i + 1 for i, name in enumerate(names)}
     species = ["H2", "H", "O", "O2", "OH", "H2O", "HO2", "H2O2", "N2"]
     if all(name in col for name in (
@@ -146,32 +110,13 @@ def fields_from_plot(nb, data, names):
             "progress": progress,
         }
 
-    # Read legacy plotfiles that stored conserved variables only.
-    rho = data[:, col["density"]]
-    u = data[:, col["momentum_x"]] / rho
-    v = data[:, col["momentum_y"]] / rho
-    kinetic = 0.5 * rho * (u * u + v * v)
-    internal = (data[:, col["total_energy"]] - kinetic) / rho
-    species = ["H2", "H", "O", "O2", "OH", "H2O", "HO2", "H2O2", "N2"]
-    Y = np.stack(
-        [data[:, col["rho_" + s]] / rho for s in species], axis=1)
-    Y = np.maximum(Y, 0.0)
-    Y /= np.maximum(Y.sum(axis=1, keepdims=True), 1e-30)
-    T = temperature_from_energy(nb, internal, Y)
-    Rmix = np.sum(Y * RU / nb.W[None, :], axis=1)
-    p = rho * Rmix * T
-    return {
-        "rho": rho,
-        "u": u,
-        "v": v,
-        "T": T,
-        "p_atm": p / P0,
-        "Y_H2": Y[:, 0],
-        "Y_O2": Y[:, 3],
-        "Y_OH": Y[:, 4],
-        "Y_H2O": Y[:, 5],
-        "progress": np.clip(1.0 - Y[:, 0] / 0.1119067440, 0.0, 1.0),
-    }
+    required = ["p", "T", "U_x", "U_y", "rho"] + [
+        "Y_" + name for name in species
+    ]
+    missing = [name for name in required if name not in col]
+    raise RuntimeError(
+        "Plotfile is missing diagnostic fields: " + ", ".join(missing) +
+        ". Regenerate it with the current solver.")
 
 
 def field_panel(ax, x, y, values, title, label, cmap, vmin=None, vmax=None):
@@ -207,19 +152,19 @@ def main():
     parser.add_argument("--zoom-center", type=float, default=None)
     parser.add_argument("--zoom-width", type=float, default=0.06)
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--outdir", type=Path, default=None)
     args = parser.parse_args()
 
-    root = Path(__file__).resolve().parents[2]
     plotdir = args.plotfile.resolve()
-    outdir = plotdir.parent / "figures"
+    outdir = (
+        args.outdir.resolve() if args.outdir is not None
+        else plotdir.parent / "figures")
     outdir.mkdir(exist_ok=True)
     names, time, problo, probhi, base_dx = read_header(plotdir)
     if args.ny <= 0:
         args.ny = max(
             1, int(round((probhi[1] - problo[1]) / base_dx[1])))
     fextract = resolve_fextract(args.fextract)
-    nb = load_mechanism(root)
-
     cache = outdir / ("fields_%.3fus.npz" % (time * 1e6))
     if cache.exists():
         with np.load(cache) as loaded:
@@ -241,7 +186,7 @@ def main():
             order = np.argsort(x)
             x = x[order]
             data = data[order]
-            fields = fields_from_plot(nb, data, names)
+            fields = fields_from_plot(data, names)
             return j, {
                 key: np.interp(xout, x, fields[key]) for key in values
             }

@@ -10,6 +10,7 @@
 | `max_step` | 最大水动力步数 |
 | `geometry.prob_lo/hi` | 二维计算域下界/上界，单位 m |
 | `geometry.is_periodic` | x、y 方向是否采用周期边界；`0` 为否，`1` 为是 |
+| `geometry.coord_sys` | 坐标系类型；二维笛卡尔坐标使用 `0` |
 
 ## AMR 和输出
 
@@ -24,9 +25,13 @@
 | `amr.n_error_buf` | 标记加密区域向外扩充的单元数 |
 | `amr.do_reflux` | 是否执行粗/细网格通量修正；正式计算应设为 `1` |
 | `amr.plot_file` | 场数据文件名前缀，可包含目录 |
+| `amr.chk_file` | checkpoint 文件名前缀 |
+| `amr.restart` | 从指定 checkpoint 续算；不设置时从初始条件开始 |
 | `amr.plot_vtk` | 是否写出 ParaView VTM/VTU/PVD 文件 |
 | `amr.plot_tecplot` | 是否写出 Tecplot ASCII 文件 |
 | `amr.plot_export_precision` | 文本格式输出精度 |
+| `amr.plot_int` | 按固定步数输出场数据的间隔；`0` 表示关闭 |
+| `amr.chk_int` | 按固定步数输出 checkpoint 的间隔；`0` 表示关闭 |
 | `amr.plot_time_int` | 场数据输出间隔，单位 s |
 | `amr.chk_time_int` | checkpoint 输出间隔，单位 s |
 
@@ -44,6 +49,10 @@
 | `det.perturb_amp` | 横向正弦温度扰动的相对幅值 |
 | `det.perturb_waves` | 横向温度扰动的波数 |
 | `det.Y_H2`, `det.Y_O2` | 初始氢气和氧气质量分数 |
+
+当前初值接口只设置 H2 和 O2；其余组分初始为 0。两个质量分数之和必须为 1，
+点火区和未燃区使用相同组分。速度初始值固定为 0。左边界固定为反射壁、右边界
+外推、上下周期；如需其他边界必须修改源码。
 
 ## 自适应加密判据
 
@@ -72,3 +81,6 @@
 | `det.status_every` | `status.json/status.txt` 更新间隔，单位：水动力步 |
 | `det.status_file` | JSON 状态文件名 |
 | `det.status_text_file` | 纯文本状态文件名 |
+
+完整的建算例步骤和示例见
+[`NEW_CASE_GUIDE.md`](NEW_CASE_GUIDE.md)。
