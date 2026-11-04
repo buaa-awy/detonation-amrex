@@ -1,0 +1,17 @@
+build/
+runs/
+fields/
+chk*/
+plt*/
+*.o
+*.a
+*.png
+*.pdf
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+Backtrace.*
+run.log
+status.json
+status.txt

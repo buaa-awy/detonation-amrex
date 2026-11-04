@@ -1,0 +1,60 @@
+# Longer 2-D detonation case matching the 0.30 m x 0.02 m reference setup.
+stop_time = 7.5e-5
+max_step = 200000
+
+geometry.is_periodic = 0 1
+geometry.coord_sys = 0
+geometry.prob_lo = 0.0 0.0
+geometry.prob_hi = 0.30 0.02
+
+amr.n_cell = 1504 104
+amr.max_level = 3
+amr.ref_ratio = 2 2 2
+amr.regrid_int = 100
+amr.blocking_factor = 8
+amr.max_grid_size = 128
+amr.n_error_buf = 4
+amr.do_reflux = 1
+
+amr.plot_file = fields/t
+amr.plot_vtk = 1
+amr.plot_tecplot = 1
+amr.plot_export_precision = 10
+amr.chk_file = chk
+amr.plot_int = 0
+amr.chk_int = 0
+amr.plot_time_int = 1.0e-5
+amr.chk_time_int = 5.0e-6
+
+det.cfl = 0.3
+det.change_max = 1.1
+det.x_igniter = 0.01
+det.T_igniter = 1800.0
+det.p_igniter = 151987.5
+det.T_fuel = 300.0
+det.p_fuel = 8000.0
+det.perturb_amp = 0.12
+det.perturb_waves = 4
+det.Y_H2 = 0.1119067440
+det.Y_O2 = 0.8880932560
+
+det.grad_p = 0.15
+det.grad_T = 0.10
+det.grad_Y = 0.02
+det.chem_activity = 0.05
+det.front_pre = 1.5e-3
+det.front_post = 2.5e-3
+det.front_regrid_distance = 5.0e-4
+det.refine_zone_lo = 0.009
+det.refine_zone_hi = 0.013
+det.refine_zone_until = 5.0e-6
+
+det.chem_Tmin = 650.0
+det.chem_hmax = 1.0e-8
+det.chem_tol_y = 0.05
+det.chem_tol_T = 0.03
+det.chem_stride = 1
+det.progress_every = 20
+det.status_every = 20
+det.status_file = status.json
+det.status_text_file = status.txt
