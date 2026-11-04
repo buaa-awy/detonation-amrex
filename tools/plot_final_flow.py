@@ -75,9 +75,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("plotfile", type=Path)
     parser.add_argument("--data", type=Path)
+    parser.add_argument("--outdir", type=Path)
     args = parser.parse_args()
     plotdir = args.plotfile.resolve()
-    outdir = plotdir.parent / "figures"
+    outdir = (
+        args.outdir.resolve() if args.outdir is not None
+        else plotdir.parent / "figures")
+    outdir.mkdir(parents=True, exist_ok=True)
     time_us, problo, probhi, nlevels, spacing = read_header(plotdir)
     data_path = args.data
     if data_path is None:

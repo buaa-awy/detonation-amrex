@@ -50,6 +50,9 @@ def resolve_fextract(user_value: Optional[str]) -> str:
             "Tools/Plotfile/fextract.gnu.MPI.ex")
     candidates.extend([
         Path.home() / "amrex/Tools/Plotfile/fextract.gnu.MPI.ex",
+        Path(os.environ.get(
+            "AMREX_PREFIX", Path.home() / "amrex-install-2d-cuda")) /
+        "bin/amrex_fextract",
         Path.home() / "amrex-install-2d-cuda/bin/fextract.gnu.MPI.ex",
         Path.home() / "amrex-install-2d-cpu/bin/fextract.gnu.MPI.ex",
     ])

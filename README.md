@@ -6,6 +6,10 @@ checkpoint/restart，以及 ParaView/Tecplot 数据输出。
 
 > 这是研究代码，不包含燃烧模型验证、数值方法验证或任何形式的安全保证。
 
+当前 70 μs 长算例诊断发现前导压力波和反应波持续分离，尚未形成自持爆震。
+该结果只能用于代码调试，不能作为物理正确性的基准。详见
+[docs/VALIDATION_70US.md](docs/VALIDATION_70US.md)。
+
 ## 功能
 
 - 守恒二维 Euler 方程：`rho, rho*u, rho*v, rho*E, rho*Y_k`
@@ -38,39 +42,42 @@ docs/                   参数参考、新建算例教程和完整文件说明
 - CMake 3.24 或更新版本
 - MPI（OpenMPI 或 MPICH）
 - CUDA Toolkit
-- 二维 CUDA AMReX，建议 AMReX 26.10
+- 二维 CUDA AMReX，固定使用 AMReX 26.10
 - Python 3，仅绘图工具需要 NumPy 和 Matplotlib
 
 当前版本已在 AMReX 26.10、CUDA 12.9 和 Ubuntu 20.04 WSL2 上验证。
 求解器只支持二维 CUDA 构建。CPU 构建分支未包含在发布版中。
 
-## 安装 AMReX
-
-如果还没有二维 CUDA AMReX，可从 AMReX 源码安装：
+完整的系统依赖、固定版本、GPU 架构表和干净环境步骤见
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。首次复现建议依次执行：
 
 ```bash
-export AMREX_SOURCE=$HOME/amrex
-export CUDA_HOME=/usr/local/cuda
+export CUDA_ARCH=89
+./scripts/install_amrex.sh
 export AMREX_PREFIX=$HOME/amrex-install-2d-cuda
-
-cmake -S "$AMREX_SOURCE" -B "$HOME/amrex-build-2d-cuda" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DAMReX_SPACEDIM=2 \
-  -DAMReX_GPU_BACKEND=CUDA \
-  -DCMAKE_CUDA_ARCHITECTURES=89 \
-  -DCMAKE_CUDA_COMPILER="$CUDA_HOME/bin/nvcc" \
-  -DAMReX_MPI=ON \
-  -DAMReX_OMP=OFF \
-  -DAMReX_EB=OFF \
-  -DAMReX_PARTICLES=OFF \
-  -DCMAKE_INSTALL_PREFIX="$AMREX_PREFIX"
-
-cmake --build "$HOME/amrex-build-2d-cuda" --parallel 4
-cmake --install "$HOME/amrex-build-2d-cuda"
+export FEXTRACT=$AMREX_PREFIX/bin/amrex_fextract
+./scripts/check_environment.sh
+./scripts/build.sh
+./build/chemtest
+./scripts/run_smoke_test.sh
 ```
 
-`CMAKE_CUDA_ARCHITECTURES` 要与本机 GPU 匹配。RTX 4070/4060 使用 `89`，
-RTX 30 系列通常使用 `86`，RTX 20 系列通常使用 `75`，A100 使用 `80`。
+`CUDA_ARCH` 必须与 GPU 匹配：RTX 20 系列通常为 `75`，RTX 30 系列通常为
+`86`，RTX 40 系列为 `89`，A100 为 `80`。
+
+## 安装 AMReX
+
+推荐直接使用脚本安装固定的 AMReX 26.10。脚本会从固定标签克隆源码，开启
+AMReX plotfile 工具，并把 `amrex_fextract` 安装到 `AMREX_PREFIX/bin`：
+
+```bash
+export CUDA_ARCH=89
+./scripts/install_amrex.sh
+```
+
+脚本默认使用 `$HOME/amrex`、`$HOME/amrex-build-2d-cuda` 和
+`$HOME/amrex-install-2d-cuda`，可通过 `AMREX_SOURCE`、`AMREX_BUILD`、
+`AMREX_PREFIX` 修改。
 
 ## 下载源码
 
@@ -105,6 +112,21 @@ export CUDA_ARCH=89
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+与当前验证环境一致的 Python 3.13 版本可使用
+`requirements-lock-py313.txt`。系统依赖和版本详情见
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
+
+## 可复现回归测试
+
+在长时间计算前先运行 100 步确定性测试：
+
+```bash
+./scripts/run_smoke_test.sh
+```
+
+测试检查最大 AMR 层、最终状态有限性、总质量和总能量。参考值和容差见
+[docs/EXPECTED_RESULTS.md](docs/EXPECTED_RESULTS.md)。
 
 ## 快速开始
 
@@ -259,31 +281,46 @@ zone；zone 名称包含层级、块号和 MPI rank。
 
 ### 内置绘图
 
-AMReX `fextract` 是二维切片提取所需的 AMReX 工具。若它不在默认位置：
+`install_amrex.sh` 已构建 AMReX `fextract`。若使用已有 AMReX：
 
 ```bash
-export FEXTRACT=$AMREX_SOURCE/Tools/Plotfile/fextract.gnu.MPI.ex
+export FEXTRACT=$AMREX_PREFIX/bin/amrex_fextract
 ```
 
-生成温压密、组分和中心线图：
+输出时间通常略晚于输出间隔，因此不要假设目录名一定是精确的
+`t0.000001000000`。选择最新场目录：
 
 ```bash
+PLOT=$(find runs/quick/fields -maxdepth 1 -type d -name 't*' | sort | tail -1)
+echo "$PLOT"
 python3 tools/plot_amrex_snapshot.py \
-  runs/quick/fields/t0.000001000000 --jobs 8
+  "$PLOT" --jobs 8
 ```
 
 然后生成流场汇总和 P/T/O2 剖面：
 
 ```bash
 python3 tools/plot_final_flow.py \
-  runs/quick/fields/t0.000001000000
+  "$PLOT"
 ```
 
 AMR 布局图：
 
 ```bash
 python3 tools/plot_amr_levels.py \
-  runs/quick/fields/t0.000001000000 --xlim 0.03
+  "$PLOT" --xlim 0.03
+```
+
+大 AMR 算例也可以用 ParaView 的 `pvpython` 直接读取 VTM，不依赖
+`fextract`：
+
+```bash
+pvpython tools/extract_vtm_fields.py \
+  runs/long/fields/paraview/t0.000070001234.vtm \
+  analysis/fields_70us.npz --nx 3001 --ny 401
+python3 tools/plot_final_flow.py \
+  runs/long/fields/t0.000070001234 \
+  --data analysis/fields_70us.npz --outdir analysis/figures
 ```
 
 ## 文件说明
@@ -297,8 +334,10 @@ src/                     求解器、物理模型、化学机理和输出源码
 scripts/                 构建、运行和实时监视脚本
 examples/                可直接运行的二维爆震输入
 docs/                    参数、新建算例和文件说明
+mechanism/               化学机理来源、引用和确定性转换说明
 tools/                   AMReX 提取、绘图的辅助工具
 requirements.txt          Python 绘图依赖
+requirements-lock-py313.txt  验证过的 Python 3.13 绘图依赖
 LICENSE                  MIT 许可证
 ```
 

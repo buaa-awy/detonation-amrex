@@ -13,6 +13,7 @@
 | `README.md` | 项目首页，包含安装、构建、下载、运行、实时监视、输出查看和简单建算例流程。 |
 | `LICENSE` | MIT 开源许可证，说明复制、修改和再发布的条件。 |
 | `requirements.txt` | Python 绘图工具需要的 `numpy` 和 `matplotlib`。 |
+| `requirements-lock-py313.txt` | 已验证 Python 3.13 绘图环境的精确 NumPy/Matplotlib 版本。 |
 
 ## 文档
 
@@ -21,12 +22,23 @@
 | `docs/INPUT_REFERENCE.md` | 全部输入参数及单位的中文参考表。 |
 | `docs/NEW_CASE_GUIDE.md` | 从复制输入文件到运行、检查结果的新建算例完整教程。 |
 | `docs/FILE_OVERVIEW.md` | 当前文件，逐个解释仓库文件及运行输出目录。 |
+| `docs/ENVIRONMENT.md` | 固定版本、系统依赖、AMReX、CUDA、MPI、Python 和 `fextract` 的安装步骤。 |
+| `docs/EXPECTED_RESULTS.md` | 化学自检、100 步回归测试和当前物理验证状态的参考值。 |
+| `docs/VALIDATION_70US.md` | 70 μs 长算例的场图、波前速度、守恒量和爆震耦合诊断。 |
+| `docs/images/*.png` | 70 μs 算例的温度、压力、AMR、密度梯度、中心线剖面和波前历史图。 |
+
+## 化学机理
+
+| 文件 | 用途 |
+|---|---|
+| `mechanism/README.md` | 9 组分/21 反应机理的 Cantera 来源、论文引用、转换方法、反应列表和 SHA256。 |
 
 ## 示例
 
 | 文件 | 用途 |
 |---|---|
 | `examples/h2o2_2d_demo/README.md` | H2/O2 二维示范算例的物理设置和运行说明。 |
+| `examples/h2o2_2d_demo/inputs-smoke` | 固定 100 步的确定性安装/回归测试输入。 |
 | `examples/h2o2_2d_demo/inputs` | 5 μs 快速检查算例，基础网格 600 x 50，三层 AMR。 |
 | `examples/h2o2_2d_demo/inputs-long` | 75 μs 长算例，基础网格 1504 x 104，输出 ParaView 和 Tecplot 数据。 |
 
@@ -37,8 +49,12 @@
 | 文件 | 用途 |
 |---|---|
 | `scripts/build.sh` | 根据 `AMREX_PREFIX`、`CUDA_HOME`、`CUDA_ARCH` 和 `BUILD_JOBS` 配置 Release 构建。 |
+| `scripts/install_amrex.sh` | 从固定标签安装二维 CUDA AMReX 26.10，并构建/安装 `amrex_fextract`。 |
+| `scripts/check_environment.sh` | 检查 Git、编译器、CMake、MPI、CUDA、AMReX、GPU 和绘图提取工具。 |
 | `scripts/run_case.sh` | 在指定运行目录启动 MPI/GPU 求解器，把终端输出追加到 `run.log`，并允许附加 AMReX 参数覆盖。 |
 | `scripts/watch_status.py` | 读取 `status.json`，在终端显示完成百分比、物理时间、步数、时间步长、AMR 层、网格数、波前位置、墙钟时间和 ETA。 |
+| `scripts/run_smoke_test.sh` | 创建独立运行目录并执行 100 步确定性回归。 |
+| `scripts/check_smoke.py` | 校验回归的步数、AMR 层、完成标记、总质量和总能量。 |
 
 ## C++/CUDA 源码
 
@@ -59,7 +75,9 @@
 |---|---|
 | `tools/plot_amrex_snapshot.py` | 使用 AMReX `fextract` 从 plotfile 提取二维切片，绘制密度、压力、温度、反应进度和组分图。 |
 | `tools/plot_amr_levels.py` | 读取 AMReX `Cell_H` 网格布局，绘制各层加密区域和网格数量。 |
-| `tools/plot_final_flow.py` | 从 Tecplot 场数据和 AMReX plotfile 生成流场汇总、波前缩放图及中心线剖面图。 |
+| `tools/plot_final_flow.py` | 从 `plot_amrex_snapshot.py` 或 `extract_vtm_fields.py` 生成的 NPZ 及 AMReX plotfile 生成流场汇总、波前缩放图及中心线剖面图。 |
+| `tools/extract_vtm_fields.py` | 使用 ParaView `pvpython` 把多级 VTM 合成为规则二维 NPZ，适合大 AMR 算例且不依赖 `fextract`。 |
+| `tools/plot_diagnostics.py` | 从 `output_index.csv` 绘制前导波/反应波位置、速度、间距、守恒漂移和 AMR 单元历史。 |
 | `tools/open_paraview_snapshot.py` | 在 ParaView Python 环境中打开指定 `.vtm`，按温度着色并显示。 |
 
 ## 一次运行生成的文件

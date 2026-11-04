@@ -43,9 +43,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("plotfile", type=Path)
     parser.add_argument("--xlim", type=float, default=0.06)
+    parser.add_argument("--outdir", type=Path)
     args = parser.parse_args()
     plotdir = args.plotfile.resolve()
-    outdir = plotdir.parent / "figures"
+    outdir = (
+        args.outdir.resolve() if args.outdir is not None
+        else plotdir.parent / "figures")
     outdir.mkdir(exist_ok=True)
     time_us, problo, probhi, levels, ratios, spacing = read_domain(plotdir)
     level_boxes = [

@@ -8,6 +8,13 @@
 `inputs` 的计算域为 0.12 m x 0.01 m，停止时间为 5 μs。它适合在安装完成后
 先检查 AMReX、CUDA、输入输出和监视器是否正常。
 
+`inputs-smoke` 是固定 100 步、无 ParaView/Tecplot 输出的确定性回归输入，
+用于判断版本更新是否保持基本数值结果。推荐先运行：
+
+```bash
+./scripts/run_smoke_test.sh
+```
+
 ```bash
 cd /path/to/detonation-amrex-github
 DETONATION_RUN_DIR=runs/quick \
