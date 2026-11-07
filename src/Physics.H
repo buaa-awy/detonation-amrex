@@ -604,7 +604,7 @@ implicit_chemistry_step(
           return next_residual;
       };
 
-    for (int it = 0; it < 24; ++it) {
+    for (int it = 0; it < 25; ++it) {
         Real cv_vol = 0.0_rt;
         reaction_rates_jac(x[NS], x, om, jac, dTvec, u, cv_vol);
 
@@ -641,7 +641,7 @@ implicit_chemistry_step(
             debug[0] = it;
             debug[1] = residual;
         }
-        if (residual < 1.0e-20_rt) {
+        if (residual < 1.0e-12_rt) {
             break;
         }
         if (!solve_linear_system(J, rhs, dx)) {
@@ -679,7 +679,7 @@ implicit_chemistry_step(
     }
 
     const Real residual = evaluate_residual(x, x[NS]);
-    if (!(residual < 1.0e-16_rt)) {
+    if (!(residual < 1.0e-12_rt)) {
         return false;
     }
     for (int k = 0; k < NS; ++k) {
@@ -697,7 +697,6 @@ implicit_chemistry_step(
         change_y = std::max(change_y, std::abs(Cout[k] - C0[k]) * Cinv);
     }
     change_T = std::abs(Tout - T0) / std::max(T0, 1.0_rt);
-    amrex::ignore_unused(tol_y, tol_T);
     return true;
 }
 
@@ -722,105 +721,61 @@ chemistry_step(
         std::isfinite(hnext) ? hnext : hmax));
     Real time = 0.0_rt;
     int nsub = 0;
-    while (time < dt - 1.0e-300_rt && nsub < 96) {
-        h = std::min(h, dt - time);
+    while (time < dt - 1.0e-300_rt && nsub < 64) {
+        Real h_use = std::min(h, dt - time);
+        bool truncated = (h_use < 0.999_rt * h);
         const Real Tstep = T;
-        Real radical = 0.0_rt;
+        Real C0[NS];
+        Real Cnew[NS];
         for (int k = 0; k < NS; ++k) {
-            if (k == 1 || k == 2 || k == 4 || k == 6 || k == 7) {
-                radical += std::max(Y[k], 0.0_rt);
-            }
+            C0[k] = rho * std::max(Y[k], 0.0_rt) / detmech::W[k];
         }
-
-        bool accepted = false;
-        if (radical > 1.0e-13_rt) {
-            Real C0[NS];
-            Real Cnew[NS];
-            for (int k = 0; k < NS; ++k) {
-                C0[k] = rho * std::max(Y[k], 0.0_rt) / detmech::W[k];
-            }
-            Real Tnew = T;
-            Real dy = 1.0_rt;
-            Real dT = 1.0_rt;
-            if (implicit_chemistry_step(
-                  C0, rho * e0, T, h, tol_y, tol_T, 250.0_rt, 6500.0_rt,
-                  Cnew, Tnew, dy, dT, nullptr)) {
-                Real sum_y = 0.0_rt;
-                for (int k = 0; k < NS; ++k) {
-                    Y[k] = Cnew[k] * detmech::W[k] / rho;
-                    sum_y += Y[k];
-                }
-                if (sum_y > 0.0_rt) {
-                    for (int k = 0; k < NS; ++k) {
-                        Y[k] /= sum_y;
-                    }
-                }
-                T = Tnew;
-                accepted = true;
-            }
-        }
-
-        if (!accepted) {
-            Real C[NS];
-            Real om[NS];
-            Real om1[NS];
-            Real Y1[NS];
-            Real Y2[NS];
-
-            reaction_rates(rho, Y, T, C, om);
-            for (int k = 0; k < NS; ++k) {
-                Y1[k] = std::max(
-                  0.0_rt, Y[k] + h * om[k] * detmech::W[k] / rho);
-            }
-            Real sum1 = 0.0_rt;
-            for (int k = 0; k < NS; ++k) {
-                sum1 += Y1[k];
-            }
-            sum1 = std::max(sum1, 1.0e-30_rt);
-            for (int k = 0; k < NS; ++k) {
-                Y1[k] /= sum1;
-            }
-            const Real T1 = temperature_from_energy(e0, Y1, T);
-
-            reaction_rates(rho, Y1, T1, C, om1);
-            for (int k = 0; k < NS; ++k) {
-                Y2[k] = std::max(
-                  0.0_rt, Y1[k] + h * om1[k] * detmech::W[k] / rho);
-            }
-            Real sum2 = 0.0_rt;
-            for (int k = 0; k < NS; ++k) {
-                sum2 += Y2[k];
-            }
-            sum2 = std::max(sum2, 1.0e-30_rt);
-            Real dy = 0.0_rt;
-            for (int k = 0; k < NS; ++k) {
-                Y2[k] /= sum2;
-                dy = std::max(dy, std::abs(Y2[k] - Y[k]));
-            }
-            const Real Tnew = temperature_from_energy(e0, Y2, T1);
-            const Real dT = std::abs(Tnew - T) / std::max(T, 1.0_rt);
-            accepted =
-              ((dy <= tol_y || h <= 1.0e-15_rt) &&
-               (dT <= tol_T || h <= 1.0e-15_rt));
-            if (accepted) {
-                for (int k = 0; k < NS; ++k) {
-                    Y[k] = Y2[k];
-                }
-                T = Tnew;
-            }
-        }
-
-        if (accepted) {
-            activity =
-              std::max(activity, std::abs(T - Tstep) / std::max(Tstep, 1.0_rt));
-            time += h;
-            h = std::min(2.0_rt * h, hmax);
-            ++nsub;
-        } else {
-            h *= 0.5_rt;
-            if (h < 1.0e-15_rt) {
+        bool ok = false;
+        Real Tnew = T;
+        Real dy = 0.0_rt;
+        Real dT = 0.0_rt;
+        for (int attempt = 0; attempt < 12; ++attempt) {
+            ok = implicit_chemistry_step(
+              C0, rho * e0, T, h_use, tol_y, tol_T, 250.0_rt, 6500.0_rt,
+              Cnew, Tnew, dy, dT, nullptr);
+            if (ok && dy <= tol_y && dT <= tol_T) {
                 break;
             }
+            h_use *= 0.5_rt;
+            h = h_use;
+            truncated = false;
+            if (h_use < 1.0e-16_rt * std::max(dt, 1.0e-30_rt)) {
+                break;
+            }
+        }
+        if (!ok) {
+            break;
+        }
+        {
+            Real sum_y = 0.0_rt;
+            for (int k = 0; k < NS; ++k) {
+                Y[k] = Cnew[k] * detmech::W[k] / rho;
+                sum_y += Y[k];
+            }
+            if (sum_y > 0.0_rt) {
+                for (int k = 0; k < NS; ++k) {
+                    Y[k] /= sum_y;
+                }
+            }
+            T = Tnew;
+        }
+        activity =
+          std::max(activity, std::abs(T - Tstep) / std::max(Tstep, 1.0_rt));
+        time += h_use;
+        ++nsub;
+        const Real fy =
+          std::sqrt(tol_y / std::max(dy, 1.0e-12_rt));
+        const Real fT =
+          std::sqrt(tol_T / std::max(dT, 1.0e-12_rt));
+        Real fac = 0.9_rt * std::min(fy, fT);
+        fac = std::min(2.0_rt, std::max(0.5_rt, fac));
+        if (!truncated) {
+            h = std::min(hmax, h_use * fac);
         }
     }
     hnext = std::min(hmax, std::max(h, 1.0e-15_rt));

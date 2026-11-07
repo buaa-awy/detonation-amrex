@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(detonation2d LANGUAGES CXX CUDA)
+project(detonation2d VERSION 0.1.4 LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

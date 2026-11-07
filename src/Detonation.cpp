@@ -5,6 +5,7 @@
 #include <AMReX_CONSTANTS.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_Gpu.H>
+#include <AMReX_GpuContainers.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_MFInterpolater.H>
 #include <AMReX_ParallelDescriptor.H>
@@ -167,6 +168,8 @@ Detonation::Detonation()
     state.resize(nlevels);
     chem_temperature.resize(nlevels);
     chem_hnext.resize(nlevels);
+    chem_accum.resize(nlevels);
+    chem_Tlast.resize(nlevels);
     chem_activity.resize(nlevels);
     fine_mask.resize(nlevels);
     t_new.resize(nlevels, 0.0_rt);
@@ -182,9 +185,16 @@ Detonation::Detonation()
             bcs[n].setLo(dir, BCType::foextrap);
             bcs[n].setHi(dir, BCType::foextrap);
         }
-        bcs[n].setLo(0, (n == det::IMX) ? BCType::reflect_odd
-                                        : BCType::reflect_even);
-        bcs[n].setHi(0, BCType::foextrap);
+        bcs[n].setLo(
+          0, left_wall
+               ? ((n == det::IMX) ? BCType::reflect_odd
+                                  : BCType::reflect_even)
+               : BCType::foextrap);
+        bcs[n].setHi(
+          0, right_wall
+               ? ((n == det::IMX) ? BCType::reflect_odd
+                                  : BCType::reflect_even)
+               : BCType::foextrap);
         if (AMREX_SPACEDIM > 1) {
             bcs[n].setLo(1, BCType::int_dir);
             bcs[n].setHi(1, BCType::int_dir);
@@ -213,6 +223,9 @@ void Detonation::ReadParameters()
     amr_pp.query("plot_vtk", export_vtk);
     amr_pp.query("plot_tecplot", export_tecplot);
     amr_pp.query("plot_export_precision", export_precision);
+    amr_pp.query("slab_refine", slab_refine);
+    amr_pp.query("left_wall", left_wall);
+    amr_pp.query("right_wall", right_wall);
 
     ParmParse det_pp("det");
     det_pp.query("cfl", cfl);
@@ -226,6 +239,14 @@ void Detonation::ReadParameters()
     det_pp.query("perturb_waves", perturb_waves);
     det_pp.query("Y_H2", Y_H2);
     det_pp.query("Y_O2", Y_O2);
+    det_pp.query("u_igniter", u_igniter);
+    det_pp.query("u_fuel", u_fuel);
+    Y_igniter_mix[0] = Y_H2;
+    Y_igniter_mix[3] = Y_O2;
+    Y_fuel_mix[0] = Y_H2;
+    Y_fuel_mix[3] = Y_O2;
+    det_pp.query("Y_igniter", Y_igniter_mix);
+    det_pp.query("Y_fuel", Y_fuel_mix);
     det_pp.query("grad_p", grad_p);
     det_pp.query("grad_T", grad_T);
     det_pp.query("grad_Y", grad_Y);
@@ -238,6 +259,8 @@ void Detonation::ReadParameters()
     det_pp.query("front_regrid_distance", front_regrid_distance);
     det_pp.query("chem_Tmin", Tmin_chem);
     det_pp.query("chem_hmax", hmax_chem);
+    det_pp.query("chem_accum_tol", chem_accum_tol);
+    det_pp.query("chem_drift_T", drift_T_chem);
     det_pp.query("chem_tol_y", tol_y_chem);
     det_pp.query("chem_tol_T", tol_T_chem);
     det_pp.query("progress_every", progress_int);
@@ -288,11 +311,14 @@ void Detonation::Evolve()
             chem_block_dt = 0.0_rt;
             ChemistryHalfStep(
               0.5_rt * chem_stride_loc * dt0);
+            FixState();
         }
         HydroRK2(time, dt0);
+        FixState();
         chem_block_dt += dt0;
         if ((istep[0] + 1) % chem_stride_loc == 0) {
             ChemistryHalfStep(0.5_rt * chem_block_dt);
+            FixState();
         }
         AverageDown();
         if (!CheckFiniteState("step", time + dt0)) {
@@ -447,8 +473,10 @@ void Detonation::InitLevelData(int lev)
     const Real p_fuel_loc = p_fuel;
     const Real amp = perturb_amp;
     const int waves = perturb_waves;
-    const Real y_h2 = Y_H2;
-    const Real y_o2 = Y_O2;
+    const auto y_ign = Y_igniter_mix;
+    const auto y_fuel_mix_loc = Y_fuel_mix;
+    const Real u_ign = u_igniter;
+    const Real u_fuel_loc = u_fuel;
 
     for (MFIter mfi(U, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.tilebox();
@@ -458,8 +486,10 @@ void Detonation::InitLevelData(int lev)
               const Real x = problo[0] + (i + 0.5_rt) * dx[0];
               const Real y = problo[1] + (j + 0.5_rt) * dx[1];
               Real Y[detmech::NUM_SPECIES] = {0.0_rt};
-              Y[0] = y_h2;
-              Y[3] = y_o2;
+              const bool igniter = (x <= x_ign);
+              for (int s = 0; s < detmech::NUM_SPECIES; ++s) {
+                  Y[s] = igniter ? y_ign[s] : y_fuel_mix_loc[s];
+              }
               Real T = (x <= x_ign) ? T_ign : T_fuel_loc;
               const Real p = (x <= x_ign) ? p_ign : p_fuel_loc;
               if (x <= x_ign && amp != 0.0_rt) {
@@ -474,7 +504,8 @@ void Detonation::InitLevelData(int lev)
               mixture_thermo(Y, T, e, cp, Rmix);
               const Real rho = p / (Rmix * T);
               u(i, j, k, det::IRHO) = rho;
-              u(i, j, k, det::IMX) = 0.0_rt;
+              u(i, j, k, det::IMX) =
+                rho * (igniter ? u_ign : u_fuel_loc);
               u(i, j, k, det::IMY) = 0.0_rt;
               u(i, j, k, det::IENE) = rho * e;
               for (int s = 0; s < detmech::NUM_SPECIES; ++s) {
@@ -487,12 +518,15 @@ void Detonation::InitLevelData(int lev)
 void Detonation::InitializeTemperatureGuess(int lev)
 {
     chem_temperature[lev].setVal(T_fuel);
-    chem_hnext[lev].setVal(hmax_chem);
+    chem_hnext[lev].setVal(std::min(chem_accum_tol, hmax_chem));
+    chem_accum[lev].setVal(0.0_rt);
+    chem_Tlast[lev].setVal(T_fuel);
     chem_activity[lev].setVal(0.0_rt);
     for (MFIter mfi(state[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.tilebox();
         auto u = state[lev].const_array(mfi);
         auto ta = chem_temperature[lev].array(mfi);
+        auto tla = chem_Tlast[lev].array(mfi);
         ParallelFor(
           bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
               Real Uloc[det::NCOMP];
@@ -505,6 +539,7 @@ void Detonation::InitializeTemperatureGuess(int lev)
               primitive_from_conserved(
                 Uloc, Tguess, rho, vx, vy, p, T, cs, gamma, Y);
               ta(i, j, k) = T;
+              tla(i, j, k) = T;
           });
     }
 }
@@ -530,7 +565,12 @@ void Detonation::MakeNewLevelFromScratch(
     state[lev].define(ba, dm, det::NCOMP, 3);
     chem_temperature[lev].define(ba, dm, 1, 0);
     chem_hnext[lev].define(ba, dm, 1, 0);
+    chem_accum[lev].define(ba, dm, 1, 0);
+    chem_Tlast[lev].define(ba, dm, 1, 0);
     chem_activity[lev].define(ba, dm, 1, 0);
+    chem_hnext[lev].setVal(std::min(chem_accum_tol, hmax_chem));
+    chem_accum[lev].setVal(0.0_rt);
+    chem_activity[lev].setVal(0.0_rt);
     t_new[lev] = time;
     t_old[lev] = time - 1.0e30_rt;
     dt[lev] = 1.0e30_rt;
@@ -544,7 +584,12 @@ void Detonation::MakeNewLevelFromCoarse(
     state[lev].define(ba, dm, det::NCOMP, 3);
     chem_temperature[lev].define(ba, dm, 1, 0);
     chem_hnext[lev].define(ba, dm, 1, 0);
+    chem_accum[lev].define(ba, dm, 1, 0);
+    chem_Tlast[lev].define(ba, dm, 1, 0);
     chem_activity[lev].define(ba, dm, 1, 0);
+    chem_hnext[lev].setVal(std::min(chem_accum_tol, hmax_chem));
+    chem_accum[lev].setVal(0.0_rt);
+    chem_activity[lev].setVal(0.0_rt);
     if (do_reflux && lev > 0) {
         flux_register[lev] = std::make_unique<FluxRegister>(
           ba, dm, refRatio(lev - 1), lev, det::NCOMP);
@@ -554,28 +599,64 @@ void Detonation::MakeNewLevelFromCoarse(
     dt[lev] = 1.0e30_rt;
     FillCoarsePatch(lev, time, state[lev]);
     InitializeTemperatureGuess(lev);
+    FillCoarseAux(lev, time, chem_hnext[lev - 1], chem_hnext[lev]);
+    FillCoarseAux(lev, time, chem_accum[lev - 1], chem_accum[lev]);
+    FillCoarseAux(lev, time, chem_Tlast[lev - 1], chem_Tlast[lev]);
+    FillCoarseAux(lev, time, chem_activity[lev - 1], chem_activity[lev]);
 }
 
 void Detonation::RemakeLevel(
   int lev, Real time, const BoxArray& ba, const DistributionMapping& dm)
 {
+    MultiFab old_temperature = std::move(chem_temperature[lev]);
+    MultiFab old_hnext = std::move(chem_hnext[lev]);
+    MultiFab old_accum = std::move(chem_accum[lev]);
+    MultiFab old_Tlast = std::move(chem_Tlast[lev]);
+    MultiFab old_activity = std::move(chem_activity[lev]);
     MultiFab new_state(ba, dm, det::NCOMP, 3);
     MultiFab new_temperature(ba, dm, 1, 0);
     MultiFab new_hnext(ba, dm, 1, 0);
+    MultiFab new_accum(ba, dm, 1, 0);
+    MultiFab new_Tlast(ba, dm, 1, 0);
     MultiFab new_activity(ba, dm, 1, 0);
+    new_hnext.setVal(std::min(chem_accum_tol, hmax_chem));
+    new_accum.setVal(0.0_rt);
+    new_activity.setVal(0.0_rt);
     FillCurrent(lev, time, state, new_state, 3);
     Gpu::streamSynchronize();
     state[lev] = std::move(new_state);
     chem_temperature[lev] = std::move(new_temperature);
     chem_hnext[lev] = std::move(new_hnext);
+    chem_accum[lev] = std::move(new_accum);
+    chem_Tlast[lev] = std::move(new_Tlast);
     chem_activity[lev] = std::move(new_activity);
+    InitializeTemperatureGuess(lev);
+    if (lev > 0) {
+        FillCoarseAux(lev, time, chem_hnext[lev - 1], chem_hnext[lev]);
+        FillCoarseAux(lev, time, chem_accum[lev - 1], chem_accum[lev]);
+        FillCoarseAux(lev, time, chem_Tlast[lev - 1], chem_Tlast[lev]);
+        FillCoarseAux(lev, time, chem_activity[lev - 1], chem_activity[lev]);
+    }
+    if (old_temperature.ok() && old_hnext.ok() && old_accum.ok() &&
+        old_Tlast.ok() && old_activity.ok()) {
+        chem_temperature[lev].ParallelCopy(
+          old_temperature, 0, 0, 1, 0, 0, Geom(lev).periodicity());
+        chem_hnext[lev].ParallelCopy(
+          old_hnext, 0, 0, 1, 0, 0, Geom(lev).periodicity());
+        chem_accum[lev].ParallelCopy(
+          old_accum, 0, 0, 1, 0, 0, Geom(lev).periodicity());
+        chem_Tlast[lev].ParallelCopy(
+          old_Tlast, 0, 0, 1, 0, 0, Geom(lev).periodicity());
+        chem_activity[lev].ParallelCopy(
+          old_activity, 0, 0, 1, 0, 0, Geom(lev).periodicity());
+        Gpu::streamSynchronize();
+    }
     if (do_reflux && lev > 0) {
         flux_register[lev] = std::make_unique<FluxRegister>(
           ba, dm, refRatio(lev - 1), lev, det::NCOMP);
     }
     t_new[lev] = time;
     dt[lev] = std::max(dt[lev], 0.0_rt);
-    InitializeTemperatureGuess(lev);
 }
 
 void Detonation::ClearLevel(int lev)
@@ -583,6 +664,8 @@ void Detonation::ClearLevel(int lev)
     state[lev].clear();
     chem_temperature[lev].clear();
     chem_hnext[lev].clear();
+    chem_accum[lev].clear();
+    chem_Tlast[lev].clear();
     chem_activity[lev].clear();
     fine_mask[lev].clear();
     flux_register[lev].reset();
@@ -605,6 +688,29 @@ void Detonation::FillCoarsePatch(int lev, Real time, MultiFab& data)
         PhysBCFunct<CpuBndryFuncFab> fbc(geom[lev], bcs, func);
         InterpFromCoarseLevel(
           data, time, *cmf[0], 0, 0, det::NCOMP, geom[lev - 1], geom[lev],
+          cbc, 0, fbc, 0, refRatio(lev - 1), &cell_cons_interp, bcs, 0);
+    }
+}
+
+void Detonation::FillCoarseAux(
+  int lev, Real time, const MultiFab& source, MultiFab& data)
+{
+    Vector<MultiFab*> cmf{const_cast<MultiFab*>(&source)};
+    if (Gpu::inLaunchRegion()) {
+        GpuBndryFuncFab<DetFill> func(DetFill{});
+        PhysBCFunct<GpuBndryFuncFab<DetFill>> cbc(
+          geom[lev - 1], bcs, func);
+        PhysBCFunct<GpuBndryFuncFab<DetFill>> fbc(
+          geom[lev], bcs, func);
+        InterpFromCoarseLevel(
+          data, time, *cmf[0], 0, 0, 1, geom[lev - 1], geom[lev],
+          cbc, 0, fbc, 0, refRatio(lev - 1), &cell_cons_interp, bcs, 0);
+    } else {
+        CpuBndryFuncFab func(nullptr);
+        PhysBCFunct<CpuBndryFuncFab> cbc(geom[lev - 1], bcs, func);
+        PhysBCFunct<CpuBndryFuncFab> fbc(geom[lev], bcs, func);
+        InterpFromCoarseLevel(
+          data, time, *cmf[0], 0, 0, 1, geom[lev - 1], geom[lev],
           cbc, 0, fbc, 0, refRatio(lev - 1), &cell_cons_interp, bcs, 0);
     }
 }
@@ -645,6 +751,48 @@ void Detonation::AverageDown()
             average_down(
               chem_hnext[lev + 1], chem_hnext[lev],
               geom[lev + 1], geom[lev], 0, 1, refRatio(lev));
+            average_down(
+              chem_accum[lev + 1], chem_accum[lev],
+              geom[lev + 1], geom[lev], 0, 1, refRatio(lev));
+            average_down(
+              chem_Tlast[lev + 1], chem_Tlast[lev],
+              geom[lev + 1], geom[lev], 0, 1, refRatio(lev));
+            average_down(
+              chem_activity[lev + 1], chem_activity[lev],
+              geom[lev + 1], geom[lev], 0, 1, refRatio(lev));
+        }
+    }
+}
+
+void Detonation::FixState()
+{
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        for (MFIter mfi(state[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box& bx = mfi.tilebox();
+            auto u = state[lev].array(mfi);
+            ParallelFor(
+              bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                  const Real rho = std::max(
+                    u(i, j, k, det::IRHO), 1.0e-14_rt);
+                  u(i, j, k, det::IRHO) = rho;
+                  Real sum = 0.0_rt;
+                  for (int s = 0; s < detmech::NUM_SPECIES; ++s) {
+                      Real& value = u(i, j, k, det::IFY + s);
+                      value = std::max(value, 0.0_rt);
+                      sum += value;
+                  }
+                  if (sum > 1.0e-30_rt) {
+                      const Real scale = rho / sum;
+                      for (int s = 0; s < detmech::NUM_SPECIES; ++s) {
+                          u(i, j, k, det::IFY + s) *= scale;
+                      }
+                  } else {
+                      u(i, j, k, det::IFY) = rho;
+                      for (int s = 1; s < detmech::NUM_SPECIES; ++s) {
+                          u(i, j, k, det::IFY + s) = 0.0_rt;
+                      }
+                  }
+              });
         }
     }
 }
@@ -709,6 +857,8 @@ void Detonation::ChemistryHalfStep(Real dt_half)
     }
     const Real Tmin = Tmin_chem;
     const Real hmax = hmax_chem;
+    const Real accum_tol = chem_accum_tol;
+    const Real drift_T = drift_T_chem;
     const Real tol_y = tol_y_chem;
     const Real tol_T = tol_T_chem;
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -717,6 +867,8 @@ void Detonation::ChemistryHalfStep(Real dt_half)
             auto u = state[lev].array(mfi);
             auto ta = chem_temperature[lev].array(mfi);
             auto ha = chem_hnext[lev].array(mfi);
+            auto ac = chem_accum[lev].array(mfi);
+            auto tla = chem_Tlast[lev].array(mfi);
             auto aa = chem_activity[lev].array(mfi);
             auto fm = fine_mask[lev].const_array(mfi);
             ParallelFor(
@@ -749,16 +901,34 @@ void Detonation::ChemistryHalfStep(Real dt_half)
                       Tguess = 1000.0_rt;
                   }
                   Real T = temperature_from_energy(e0, Y, Tguess);
+                  if (T < Tmin) {
+                      ac(i, j, k) = 0.0_rt;
+                      ha(i, j, k) = std::min(accum_tol, hmax);
+                      tla(i, j, k) = T;
+                      ta(i, j, k) = T;
+                      aa(i, j, k) = 0.0_rt;
+                      return;
+                  }
+                  Real dt_chem = ac(i, j, k) + dt_half;
+                  ac(i, j, k) = dt_chem;
+                  if (dt_chem < ha(i, j, k) &&
+                      std::abs(T - tla(i, j, k)) < drift_T) {
+                      ta(i, j, k) = T;
+                      aa(i, j, k) = 0.0_rt;
+                      return;
+                  }
                   Real hnext = ha(i, j, k);
                   Real activity = 0.0_rt;
                   chemistry_step(
-                    rho, e0, dt_half, Tmin, hmax, tol_y, tol_T, Y, T,
+                    rho, e0, dt_chem, Tmin, hmax, tol_y, tol_T, Y, T,
                     hnext, activity);
                   for (int s = 0; s < detmech::NUM_SPECIES; ++s) {
                       u(i, j, k, det::IFY + s) = rho * Y[s];
                   }
                   ta(i, j, k) = T;
+                  tla(i, j, k) = T;
                   ha(i, j, k) = hnext;
+                  ac(i, j, k) = 0.0_rt;
                   aa(i, j, k) = activity;
               });
         }
@@ -1173,6 +1343,28 @@ void Detonation::ErrorEst(
                   tag(i, j, k) = clearval;
               }
           });
+        if (slab_refine && Geom(lev).isPeriodic(1)) {
+            const auto tag_slab = tag;
+            const int ncols = bx.length(0);
+            Gpu::DeviceVector<int> column_tag(ncols, 0);
+            int* column_tag_ptr = column_tag.data();
+            ParallelFor(ncols, [=] AMREX_GPU_DEVICE(int col) noexcept {
+                const int i = bx.smallEnd(0) + col;
+                int marked = 0;
+                for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
+                    marked = marked ||
+                             (tag_slab(i, j, bx.smallEnd(2)) == tagval);
+                }
+                column_tag_ptr[col] = marked;
+            });
+            const int* marked_columns = column_tag.data();
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                tag(i, j, k) = marked_columns[i - bx.smallEnd(0)]
+                                 ? tagval
+                                 : clearval;
+            });
+            Gpu::streamSynchronize();
+        }
     }
     Gpu::streamSynchronize();
 }
@@ -1188,11 +1380,14 @@ void Detonation::WriteStatusFile(
   Real time, Real current_dt, Real wall, Real eta, bool finished)
 {
     MultiFab pressure(grids[0], dmap[0], 1, 0);
+    MultiFab shock_marker(grids[0], dmap[0], 1, 0);
     MultiFab reaction(grids[0], dmap[0], 1, 0);
+    shock_marker.setVal(0.0_rt);
     reaction.setVal(0.0_rt);
     for (MFIter mfi(pressure, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.tilebox();
         auto p = pressure.array(mfi);
+        auto shock = shock_marker.array(mfi);
         auto react = reaction.array(mfi);
         auto u = state[0].const_array(mfi);
         const Real x_ign = x_igniter;
@@ -1213,6 +1408,20 @@ void Detonation::WriteStatusFile(
                 Uloc, Tguess, rho, vx, vy, pp, T, cs, gamma, Y);
               const Real x = problo_x + (i + 0.5_rt) * dx;
               p(i, j, k) = (x >= x_ign) ? pp : 0.0_rt;
+              Real ppR = pp;
+              if (i < bx.bigEnd(0)) {
+                  for (int n = 0; n < det::NCOMP; ++n) {
+                      Uloc[n] = u(i + 1, j, k, n);
+                  }
+                  Real rhoR, vxR, vyR, TR, csR, gammaR;
+                  Tguess = 1000.0_rt;
+                  primitive_from_conserved(
+                    Uloc, Tguess, rhoR, vxR, vyR, ppR, TR, csR, gammaR, Y);
+              }
+              const bool leading_shock =
+                (x >= x_ign && pp > 0.25_rt * P0 &&
+                 ppR < 0.75_rt * pp);
+              shock(i, j, k) = leading_shock ? x : 0.0_rt;
           });
         ParallelFor(
           reaction_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
@@ -1236,7 +1445,10 @@ void Detonation::WriteStatusFile(
             react(bx.smallEnd()) = 0.0_rt;
         }
     }
-    const IntVect front_idx = pressure.maxIndex(0, 0);
+    IntVect front_idx = pressure.maxIndex(0, 0);
+    if (shock_marker.norm0(0, 0, true) > 0.0_rt) {
+        front_idx = shock_marker.maxIndex(0, 0);
+    }
     const IntVect reaction_idx = reaction.maxIndex(0, 0);
     const Real new_front_x =
       Geom(0).ProbLo(0) + (front_idx[0] + 0.5_rt) * Geom(0).CellSize(0);
@@ -1576,6 +1788,21 @@ void Detonation::WriteCheckpointFile()
     for (int lev = 0; lev <= finest_level; ++lev) {
         VisMF::Write(
           state[lev], MultiFabFileFullPrefix(lev, name, "Level_", "state"));
+        VisMF::Write(
+          chem_temperature[lev],
+          MultiFabFileFullPrefix(lev, name, "Level_", "chem_temperature"));
+        VisMF::Write(
+          chem_hnext[lev],
+          MultiFabFileFullPrefix(lev, name, "Level_", "chem_hnext"));
+        VisMF::Write(
+          chem_accum[lev],
+          MultiFabFileFullPrefix(lev, name, "Level_", "chem_accum"));
+        VisMF::Write(
+          chem_Tlast[lev],
+          MultiFabFileFullPrefix(lev, name, "Level_", "chem_Tlast"));
+        VisMF::Write(
+          chem_activity[lev],
+          MultiFabFileFullPrefix(lev, name, "Level_", "chem_activity"));
     }
 }
 
@@ -1660,8 +1887,41 @@ void Detonation::ReadCheckpointFile()
           state[lev].boxArray(), state[lev].DistributionMap(), 1, 0);
         chem_hnext[lev].define(
           state[lev].boxArray(), state[lev].DistributionMap(), 1, 0);
+        chem_accum[lev].define(
+          state[lev].boxArray(), state[lev].DistributionMap(), 1, 0);
+        chem_Tlast[lev].define(
+          state[lev].boxArray(), state[lev].DistributionMap(), 1, 0);
         chem_activity[lev].define(
           state[lev].boxArray(), state[lev].DistributionMap(), 1, 0);
-        InitializeTemperatureGuess(lev);
+        chem_hnext[lev].setVal(std::min(chem_accum_tol, hmax_chem));
+        chem_accum[lev].setVal(0.0_rt);
+        chem_Tlast[lev].setVal(T_fuel);
+        chem_activity[lev].setVal(0.0_rt);
+        const std::string aux_prefix = MultiFabFileFullPrefix(
+          lev, restart_chkfile, "Level_", "chem_temperature");
+        if (std::filesystem::exists(aux_prefix + "_H")) {
+            VisMF::Read(
+              chem_temperature[lev],
+              MultiFabFileFullPrefix(
+                lev, restart_chkfile, "Level_", "chem_temperature"));
+            VisMF::Read(
+              chem_hnext[lev],
+              MultiFabFileFullPrefix(
+                lev, restart_chkfile, "Level_", "chem_hnext"));
+            VisMF::Read(
+              chem_accum[lev],
+              MultiFabFileFullPrefix(
+                lev, restart_chkfile, "Level_", "chem_accum"));
+            VisMF::Read(
+              chem_Tlast[lev],
+              MultiFabFileFullPrefix(
+                lev, restart_chkfile, "Level_", "chem_Tlast"));
+            VisMF::Read(
+              chem_activity[lev],
+              MultiFabFileFullPrefix(
+                lev, restart_chkfile, "Level_", "chem_activity"));
+        } else {
+            InitializeTemperatureGuess(lev);
+        }
     }
 }

@@ -1,0 +1,79 @@
+# Independent planar detonation validation.
+#
+# Unburned state:
+#   stoichiometric H2/O2, 300 K, 1 atm
+# Cantera equilibrium CJ reference for this mechanism:
+#   D_CJ     = 2838.5 m/s
+#   p_CJ     = 17.984 atm
+#   T_CJ     = 3667.3 K
+#
+# The left state is the equilibrium CJ state.  The right state is the
+# unburned mixture.  The transverse direction is periodic and unperturbed,
+# so the wave remains quasi-one-dimensional while the full AMR/CUDA path
+# is exercised.
+stop_time = 3.0e-5
+max_step = 100000
+
+geometry.is_periodic = 0 1
+geometry.coord_sys = 0
+geometry.prob_lo = 0.0 0.0
+geometry.prob_hi = 0.15 1.6e-3
+
+amr.n_cell = 750 8
+amr.max_level = 3
+amr.ref_ratio = 2 2 2
+amr.regrid_int = 20
+amr.blocking_factor = 1
+amr.max_grid_size = 128
+amr.n_error_buf = 4
+amr.do_reflux = 1
+amr.slab_refine = 0
+amr.left_wall = 0
+amr.right_wall = 0
+
+amr.plot_file = fields/t
+amr.plot_vtk = 1
+amr.plot_tecplot = 1
+amr.plot_export_precision = 10
+amr.chk_file = chk
+amr.plot_int = 0
+amr.chk_int = 0
+amr.plot_time_int = 5.0e-6
+amr.chk_time_int = 5.0e-6
+
+det.cfl = 0.3
+det.change_max = 1.1
+det.x_igniter = 0.05
+det.T_igniter = 3667.2799234933295
+det.p_igniter = 1822188.79632113
+det.T_fuel = 300.0
+det.p_fuel = 101325.0
+det.perturb_amp = 0.0
+det.perturb_waves = 1
+det.u_igniter = 1242.6506522012928
+det.u_fuel = 0.0
+det.Y_igniter = 0.02249567616489563 0.0055917908421561965 0.04214406312904598 0.1066612802291099 0.156843896714255 0.6658022500835907 0.00041432129721656315 4.672153973000373e-05 0.0
+det.Y_fuel = 0.1119067440 0.0 0.0 0.8880932560 0.0 0.0 0.0 0.0 0.0
+
+det.grad_p = 0.15
+det.grad_T = 0.10
+det.grad_Y = 0.02
+det.chem_activity = 0.05
+det.front_pre = 2.0e-3
+det.front_post = 3.0e-3
+det.front_regrid_distance = 5.0e-4
+det.refine_zone_lo = 0.0
+det.refine_zone_hi = 0.052
+det.refine_zone_until = 2.0e-6
+
+det.chem_Tmin = 650.0
+det.chem_hmax = 1.0e-5
+det.chem_accum_tol = 1.0e-8
+det.chem_drift_T = 20.0
+det.chem_tol_y = 0.05
+det.chem_tol_T = 0.03
+det.chem_stride = 1
+det.progress_every = 20
+det.status_every = 20
+det.status_file = status.json
+det.status_text_file = status.txt

@@ -4,7 +4,11 @@
 21 反应 H2/O2 机理、NASA7 热力学、GPU HLLC、AMR、粗/细界面 reflux、
 checkpoint/restart，以及 ParaView/Tecplot 数据输出。
 
-> 这是研究代码，不包含燃烧模型验证、数值方法验证或任何形式的安全保证。
+> 当前稳定版本：**v0.1.4**（2026-11-07）。版本变化见
+> [CHANGELOG.md](CHANGELOG.md)。
+
+> 这是研究代码。当前版本完成了反应 Euler、HLLC、化学、AMR、GPU 和 I/O 的
+> 核心传播验证；不包含网格无关性、实验标定或任何形式的安全保证。
 
 ## 功能
 
@@ -30,6 +34,8 @@ scripts/watch_status.py 无绘图实时状态
 tools/                  场提取、绘图和 ParaView 启动工具
 examples/h2o2_2d_demo/  快速和长时二维爆震算例
 docs/                   参数参考、新建算例教程和完整文件说明
+VERSION                 当前发布版本号
+CHANGELOG.md            版本变更记录
 ```
 
 ## 系统要求
@@ -217,8 +223,8 @@ Y_O2 = 0.8880932560
 ## 长时算例
 
 长时二维算例位于 `examples/h2o2_2d_demo/inputs-long`，计算域为
-`0.30 m x 0.02 m`，三级 2:1 AMR，最细网格为 `25 μm x 100 μm`，与原 Python
-算例一致，目标时间为 75 μs。
+`0.30 m x 0.02 m`，三级 2:1 AMR，最细网格为 `25 μm x 25 μm`，与原 Python
+参考算例一致，目标时间为 75 μs。
 
 ```bash
 DETONATION_RUN_DIR=runs/long \
@@ -349,6 +355,14 @@ LICENSE                  MIT 许可证
 
 发布包中每个文件的职责、一次运行产生的 `status/chk/fields/paraview/tecplot`
 文件说明见 [docs/FILE_OVERVIEW.md](docs/FILE_OVERVIEW.md)。
+
+## 平面 CJ 爆震验证
+
+`examples/h2o2_2d_demo/inputs-cj-validation` 使用 Cantera 平衡 CJ 状态初始化
+平面化学计量 H2/O2 爆轰，不依赖经验 DDT 初值。实测 5–30 μs 波速为
+`2830.03 m/s`，相对 Cantera 参考值 `2838.5 m/s` 的误差为 `-0.30%`。
+详细参考状态、运行命令和 30 μs 剖面见
+[docs/CJ_VALIDATION.md](docs/CJ_VALIDATION.md)。
 
 ## 数值与性能说明
 

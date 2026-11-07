@@ -17,14 +17,24 @@
 3. 检查压力锋与反应锋是否保持耦合；
 4. 比较波前速度、峰值压力和平衡产物，而不是只看计算是否结束。
 
+仓库提供了可直接运行的验证输入：
+
+```bash
+DETONATION_RUN_DIR=runs/cj-validation \
+  ./scripts/run_case.sh examples/h2o2_2d_demo/inputs-cj-validation
+```
+
+当前结果的 5–30 μs 波速为 `2830.03 m/s`，相对 Cantera CJ 参考值误差为
+`-0.30%`。完整参考状态和剖面见 [`CJ_VALIDATION.md`](CJ_VALIDATION.md)。
+
 ## 3. 原 Python 对照
 
 AMReX 长算例使用与原 Python 配置一致的最细网格：
 
 ```text
 dx = 25 μm
-dy = 100 μm
-base n_cell = 1500 x 25
+dy = 25 μm
+base n_cell = 1500 x 100
 refinement = three 2:1 levels
 ```
 

@@ -12,6 +12,8 @@
 | `CMakeLists.txt` | 配置 C++20/CUDA 构建，查找 AMReX，并生成 `detonation2d` 和 `chemtest` 两个可执行程序。 |
 | `README.md` | 项目首页，包含安装、构建、下载、运行、实时监视、输出查看和简单建算例流程。 |
 | `LICENSE` | MIT 开源许可证，说明复制、修改和再发布的条件。 |
+| `VERSION` | 当前发布版本号。 |
+| `CHANGELOG.md` | 各发布版本的求解器、算例和文档变更记录。 |
 | `requirements.txt` | Python 绘图工具需要的 `numpy` 和 `matplotlib`。 |
 | `requirements-lock-py313.txt` | 已验证 Python 3.13 绘图环境的精确 NumPy/Matplotlib 版本。 |
 
@@ -25,6 +27,8 @@
 | `docs/ENVIRONMENT.md` | 固定版本、系统依赖、AMReX、CUDA、MPI、Python 和 `fextract` 的安装步骤。 |
 | `docs/EXPECTED_RESULTS.md` | 化学自检和 100 步回归测试的参考值。 |
 | `docs/VALIDATION_GUIDE.md` | Python 对照、CJ/0D 化学验证、二维网格收敛和 checkpoint 验证流程。 |
+| `docs/CJ_VALIDATION.md` | 独立平面 CJ 爆轰验证的参考状态、运行方法、波速和波后平台结果。 |
+| `docs/images/cj_validation_profiles_30us.png` | CJ 验证在 30 μs 的 P–x、T–x 和 O2–x 剖面图。 |
 
 ## 化学机理
 
@@ -39,7 +43,8 @@
 | `examples/h2o2_2d_demo/README.md` | H2/O2 二维示范算例的物理设置和运行说明。 |
 | `examples/h2o2_2d_demo/inputs-smoke` | 固定 100 步的确定性安装/回归测试输入。 |
 | `examples/h2o2_2d_demo/inputs` | 5 μs 快速检查算例，基础网格 600 x 50，三层 AMR。 |
-| `examples/h2o2_2d_demo/inputs-long` | 75 μs 长算例，基础网格 1500 x 25；三级细化后为 `25 x 100 μm`，输出 ParaView 和 Tecplot 数据。 |
+| `examples/h2o2_2d_demo/inputs-cj-validation` | 平面 CJ 爆震验证算例；使用 Cantera 平衡态和理论 CJ 参数检查波速与波后状态。 |
+| `examples/h2o2_2d_demo/inputs-long` | 75 μs 长算例，基础网格 1500 x 100；三级细化后为 `25 x 25 μm`，输出 ParaView 和 Tecplot 数据。 |
 
 输入文件不是可执行程序。用户复制其中一个文件并修改参数即可建立新算例。
 

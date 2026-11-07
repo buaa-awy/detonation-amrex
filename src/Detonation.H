@@ -6,6 +6,7 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFab.H>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -46,8 +47,12 @@ public:
       amrex::MultiFab& data, int ngrow);
     void FillCoarsePatch(
       int lev, amrex::Real time, amrex::MultiFab& data);
+    void FillCoarseAux(
+      int lev, amrex::Real time, const amrex::MultiFab& source,
+      amrex::MultiFab& data);
 
     void AverageDown();
+    void FixState();
     amrex::Real ComputeDt();
     amrex::Real EstTimeStep(int lev);
 
@@ -92,6 +97,8 @@ private:
     amrex::Vector<amrex::MultiFab> state;
     amrex::Vector<amrex::MultiFab> chem_temperature;
     amrex::Vector<amrex::MultiFab> chem_hnext;
+    amrex::Vector<amrex::MultiFab> chem_accum;
+    amrex::Vector<amrex::MultiFab> chem_Tlast;
     amrex::Vector<amrex::MultiFab> chem_activity;
     amrex::Vector<amrex::iMultiFab> fine_mask;
     amrex::Vector<amrex::Real> t_new;
@@ -116,6 +123,9 @@ private:
     bool export_vtk = true;
     bool export_tecplot = true;
     bool do_reflux = true;
+    bool slab_refine = false;
+    bool left_wall = true;
+    bool right_wall = false;
     bool verbose = false;
     amrex::Real stop_time = 1.0e-4;
     amrex::Real next_plot_time = 0.0;
@@ -144,6 +154,10 @@ private:
     int perturb_waves = 4;
     amrex::Real Y_H2 = 0.1119067440;
     amrex::Real Y_O2 = 0.8880932560;
+    std::array<amrex::Real, detmech::NUM_SPECIES> Y_igniter_mix{};
+    std::array<amrex::Real, detmech::NUM_SPECIES> Y_fuel_mix{};
+    amrex::Real u_igniter = 0.0;
+    amrex::Real u_fuel = 0.0;
     amrex::Real grad_p = 0.15;
     amrex::Real grad_T = 0.10;
     amrex::Real grad_Y = 0.02;
@@ -162,6 +176,8 @@ private:
     amrex::Real front_post = 2.5e-3;
     amrex::Real Tmin_chem = 650.0;
     amrex::Real hmax_chem = 1.0e-8;
+    amrex::Real chem_accum_tol = 1.0e-8;
+    amrex::Real drift_T_chem = 20.0;
     amrex::Real tol_y_chem = 0.05;
     amrex::Real tol_T_chem = 0.03;
     amrex::Real front_x_cached = 0.01;
